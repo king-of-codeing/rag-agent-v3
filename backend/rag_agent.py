@@ -1,12 +1,13 @@
 """
-RAG agent v3.1 — adds two-stage retrieval with cross-encoder reranker.
+RAG agent v3.2 — adds hybrid search (BM25 + dense) with RRF fusion,
+keeps the cross-encoder reranker from v3.1.
 
 Pipeline:
   query
-    -> bi-encoder embed (MiniLM)
-    -> top-20 candidates from ChromaDB
-    -> cross-encoder rerank (BAAI/bge-reranker-base)
-    -> top-5 best chunks
+    -> dense (MiniLM/ChromaDB) top-20  ─┐
+                                         ├── RRF fusion → top-20
+    -> sparse (BM25)            top-20  ─┘
+    -> cross-encoder rerank → top-5
     -> Groq with citation-aware prompt
     -> { answer, sources }
 """
@@ -19,6 +20,8 @@ from langchain_groq import ChatGroq
 from langchain_core.messages import SystemMessage, HumanMessage
 from sentence_transformers import CrossEncoder
 
+from hybrid_retriever import HybridRetriever
+
 load_dotenv()
 
 CHROMA_DIR = "chroma_db"
@@ -26,9 +29,8 @@ EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 RERANKER_MODEL = "BAAI/bge-reranker-base"
 GROQ_MODEL = "llama-3.1-8b-instant"
 
-# Two-stage retrieval knobs
-FETCH_K = 20   # candidates pulled from ChromaDB (broad)
-TOP_K = 5      # final chunks sent to LLM (narrow)
+FETCH_K = 20
+TOP_K = 5
 
 SYSTEM_PROMPT = """You are a precise document Q&A assistant.
 
@@ -52,13 +54,18 @@ class RAGAgent:
             persist_directory=CHROMA_DIR,
             embedding_function=self.embeddings,
         )
-        # NOTE: we now fetch FETCH_K (20) candidates, not TOP_K (5)
-        self.retriever = self.vectorstore.as_retriever(
-            search_kwargs={"k": FETCH_K}
+
+        print("Building hybrid retriever (dense + BM25)...")
+        # Pull ALL chunks out of ChromaDB so BM25 can index them
+        all_chunks = self._load_all_chunks()
+        self.hybrid = HybridRetriever(
+            vectorstore=self.vectorstore,
+            chunks=all_chunks,
+            fetch_k=FETCH_K,
         )
+        print(f"Hybrid retriever ready over {len(all_chunks)} chunks.")
 
         print(f"Loading reranker model ({RERANKER_MODEL})...")
-        # First call downloads ~280MB; cached afterwards
         self.reranker = CrossEncoder(RERANKER_MODEL)
 
         print("Connecting to Groq...")
@@ -67,21 +74,26 @@ class RAGAgent:
             temperature=0.2,
             api_key=os.getenv("GROQ_API_KEY"),
         )
-        print("RAG agent ready (with reranker).")
+        print("RAG agent ready (hybrid + reranker).")
+
+    def _load_all_chunks(self):
+        """
+        Pull all stored Documents out of the Chroma collection.
+        Needed so BM25 can index the same corpus.
+        """
+        from langchain_core.documents import Document
+        # Chroma's underlying collection lets us get everything
+        raw = self.vectorstore.get()  # dict: ids, documents, metadatas
+        return [
+            Document(page_content=text, metadata=meta or {})
+            for text, meta in zip(raw["documents"], raw["metadatas"])
+        ]
 
     def _rerank(self, query: str, docs) -> list:
-        """
-        Score each (query, chunk) pair with the cross-encoder.
-        Return docs sorted by score, truncated to TOP_K.
-        """
         if not docs:
             return []
-
-        # Build pairs in the order the reranker expects: [(query, passage), ...]
         pairs = [(query, d.page_content) for d in docs]
-        scores = self.reranker.predict(pairs)  # numpy array of floats
-
-        # Pair each doc with its score, sort descending, take top-K
+        scores = self.reranker.predict(pairs)
         ranked = sorted(zip(docs, scores), key=lambda x: x[1], reverse=True)
         return [doc for doc, _score in ranked[:TOP_K]]
 
@@ -102,22 +114,20 @@ class RAGAgent:
         return "\n\n".join(context_lines), sources
 
     def ask(self, query: str) -> Dict:
-        # Stage 1: broad retrieval (top-20 by embedding similarity)
-        candidates = self.retriever.invoke(query)
-
+        # Stage 1: hybrid retrieval (dense + BM25 + RRF)
+        candidates = self.hybrid.retrieve(query)
         if not candidates:
             return {
                 "answer": "I don't have enough information in the provided documents to answer that.",
                 "sources": [],
             }
 
-        # Stage 2: rerank with cross-encoder, keep top-5
+        # Stage 2: cross-encoder rerank → top-K
         top_docs = self._rerank(query, candidates)
 
-        # Stage 3: format context with numbered citations, call Groq
+        # Stage 3: format + call Groq
         context_block, sources = self._format_context(top_docs)
         user_msg = f"CONTEXT:\n{context_block}\n\nQUESTION: {query}\n\nANSWER (with [n] citations):"
-
         response = self.llm.invoke([
             SystemMessage(content=SYSTEM_PROMPT),
             HumanMessage(content=user_msg),
@@ -125,7 +135,6 @@ class RAGAgent:
         return {"answer": response.content, "sources": sources}
 
 
-# Singleton: load models once, reuse across all requests
 _agent = None
 def get_agent() -> RAGAgent:
     global _agent
