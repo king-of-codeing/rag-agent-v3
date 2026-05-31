@@ -7,6 +7,7 @@ Endpoints:
   POST /chat        - non-streaming RAG (legacy / fallback)
   POST /chat/stream - SSE streaming RAG (modern UI)
 """
+import os
 import json
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -20,6 +21,7 @@ from rag_agent import get_agent
 from ingest import ingest as run_ingest
 
 
+# ---------- Lifecycle: ingest + eager-load on startup ----------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Ensure ChromaDB index exists
@@ -40,19 +42,31 @@ async def lifespan(app: FastAPI):
     print("Backend shutting down...")
 
 
+# ---------- FastAPI app ----------
 app = FastAPI(
     title="RAG Agent v3 API",
     description="Production-grade RAG: hybrid search + reranker + streaming",
-    version="3.3.0",
+    version="3.4.0",
     lifespan=lifespan,
 )
 
+
+# ---------- CORS: allow local dev + production frontends ----------
+ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
+
+# Production: add Vercel URL from env (set in HF Space secrets later)
+frontend_url = os.getenv("FRONTEND_URL")
+if frontend_url:
+    ALLOWED_ORIGINS.append(frontend_url)
+
+# Allow Vercel + HF Spaces preview URLs without needing to update env vars
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-    ],
+    allow_origins=ALLOWED_ORIGINS,
+    allow_origin_regex=r"https://.*\.(vercel\.app|hf\.space|huggingface\.co)",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -79,7 +93,7 @@ class ChatResponse(BaseModel):
 def root():
     return {
         "service": "RAG Agent v3",
-        "version": "3.3.0",
+        "version": "3.4.0",
         "docs": "/docs",
         "health": "/health",
     }
@@ -132,7 +146,6 @@ def chat_stream(req: ChatRequest):
                     payload = json.dumps({"message": edata})
                 else:
                     continue
-                # SSE wire format: "event: <name>\ndata: <json>\n\n"
                 yield f"event: {etype}\ndata: {payload}\n\n"
         except Exception as e:
             err = json.dumps({"message": f"Server error: {str(e)}"})
@@ -143,6 +156,6 @@ def chat_stream(req: ChatRequest):
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",  # disable proxy buffering (useful in prod)
+            "X-Accel-Buffering": "no",
         },
     )

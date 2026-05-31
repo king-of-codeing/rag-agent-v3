@@ -1,0 +1,34 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Local environment
+.env
+
+# Local ChromaDB — let Docker rebuild fresh
+chroma_db/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Docs not needed in container
+*.md
+!README.md
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Render config (not needed in HF container)
+render.yaml
+
+# Test artifacts
+body.json
+*.log
