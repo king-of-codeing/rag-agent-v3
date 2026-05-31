@@ -14,8 +14,7 @@ from langchain_chroma import Chroma
 
 DOCS_DIR = Path("docs")
 CHROMA_DIR = "chroma_db"
-EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
-
+EMBED_MODEL = "BAAI/bge-small-en-v1.5"
 
 def load_documents():
     documents = []

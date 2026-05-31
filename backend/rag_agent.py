@@ -25,7 +25,7 @@ from hybrid_retriever import HybridRetriever
 load_dotenv()
 
 CHROMA_DIR = "chroma_db"
-EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+EMBED_MODEL = "BAAI/bge-small-en-v1.5"
 RERANKER_MODEL = "BAAI/bge-reranker-base"
 GROQ_MODEL = "llama-3.1-8b-instant"
 
