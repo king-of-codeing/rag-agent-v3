@@ -22,12 +22,20 @@ from ingest import ingest as run_ingest
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Ensure ChromaDB index exists
     if not Path("chroma_db").exists() or not any(Path("chroma_db").iterdir()):
         print("No ChromaDB index found - running ingestion...")
         run_ingest()
     else:
         print("ChromaDB index found - skipping ingestion")
+
+    # Eagerly load the RAG agent (models, vectorstore, reranker) at startup.
+    # This avoids slow lazy loading on the first /chat request, which can
+    # trigger Render's request-timeout and worker restarts.
+    print("Pre-loading RAG agent (this is the slow part)...")
+    _ = get_agent()  # triggers RAGAgent.__init__ once, caches the singleton
     print("Backend ready to serve requests!")
+
     yield
     print("Backend shutting down...")
 
