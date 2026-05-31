@@ -26,7 +26,7 @@ load_dotenv()
 
 CHROMA_DIR = "chroma_db"
 EMBED_MODEL = "BAAI/bge-small-en-v1.5"
-RERANKER_MODEL = "BAAI/bge-reranker-base"
+RERANKER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 GROQ_MODEL = "llama-3.1-8b-instant"
 
 FETCH_K = 20
