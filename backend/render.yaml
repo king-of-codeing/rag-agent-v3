@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: rag-agent-v3-backend
+    runtime: python
+    plan: free
+    region: oregon
+    branch: main
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt && python ingest.py
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: GROQ_API_KEY
+        sync: false
+      - key: PYTHON_VERSION
+        value: "3.11"
