@@ -4,7 +4,10 @@
  * - chatStream: streaming via SSE, calls callbacks as events arrive
  * - healthCheck: ping the backend
  */
-const API_URL = "http://localhost:8000";
+
+// Use the env var in production, fallback to localhost for dev
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+
 
 export async function chatQuery(query) {
   const response = await fetch(`${API_URL}/chat`, {
