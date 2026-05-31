@@ -1,18 +1,18 @@
 """
-RAG agent v3.2 — adds hybrid search (BM25 + dense) with RRF fusion,
-keeps the cross-encoder reranker from v3.1.
+RAG agent v3.3 — adds token streaming via Groq's stream=True API.
+Keeps non-streaming ask() for fallback / batch use cases.
 
-Pipeline:
+Pipeline (both modes):
   query
     -> dense (MiniLM/ChromaDB) top-20  ─┐
                                          ├── RRF fusion → top-20
     -> sparse (BM25)            top-20  ─┘
     -> cross-encoder rerank → top-5
-    -> Groq with citation-aware prompt
-    -> { answer, sources }
+    -> Groq (streaming or full)
+    -> answer + sources
 """
 import os
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Iterator
 from dotenv import load_dotenv
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
@@ -56,7 +56,6 @@ class RAGAgent:
         )
 
         print("Building hybrid retriever (dense + BM25)...")
-        # Pull ALL chunks out of ChromaDB so BM25 can index them
         all_chunks = self._load_all_chunks()
         self.hybrid = HybridRetriever(
             vectorstore=self.vectorstore,
@@ -69,21 +68,17 @@ class RAGAgent:
         self.reranker = CrossEncoder(RERANKER_MODEL)
 
         print("Connecting to Groq...")
+        # We instantiate a streaming-capable LLM. Same model, just streaming=True.
         self.llm = ChatGroq(
             model=GROQ_MODEL,
             temperature=0.2,
             api_key=os.getenv("GROQ_API_KEY"),
         )
-        print("RAG agent ready (hybrid + reranker).")
+        print("RAG agent ready (hybrid + reranker + streaming).")
 
     def _load_all_chunks(self):
-        """
-        Pull all stored Documents out of the Chroma collection.
-        Needed so BM25 can index the same corpus.
-        """
         from langchain_core.documents import Document
-        # Chroma's underlying collection lets us get everything
-        raw = self.vectorstore.get()  # dict: ids, documents, metadatas
+        raw = self.vectorstore.get()
         return [
             Document(page_content=text, metadata=meta or {})
             for text, meta in zip(raw["documents"], raw["metadatas"])
@@ -113,26 +108,67 @@ class RAGAgent:
             })
         return "\n\n".join(context_lines), sources
 
-    def ask(self, query: str) -> Dict:
-        # Stage 1: hybrid retrieval (dense + BM25 + RRF)
+    def _retrieve_and_format(self, query: str):
+        """Shared retrieval logic used by both ask() and ask_stream()."""
         candidates = self.hybrid.retrieve(query)
         if not candidates:
+            return None, None, None
+        top_docs = self._rerank(query, candidates)
+        context_block, sources = self._format_context(top_docs)
+        return context_block, sources, top_docs
+
+    def ask(self, query: str) -> Dict:
+        """Non-streaming: full answer returned at once."""
+        context_block, sources, _ = self._retrieve_and_format(query)
+        if context_block is None:
             return {
                 "answer": "I don't have enough information in the provided documents to answer that.",
                 "sources": [],
             }
 
-        # Stage 2: cross-encoder rerank → top-K
-        top_docs = self._rerank(query, candidates)
-
-        # Stage 3: format + call Groq
-        context_block, sources = self._format_context(top_docs)
         user_msg = f"CONTEXT:\n{context_block}\n\nQUESTION: {query}\n\nANSWER (with [n] citations):"
         response = self.llm.invoke([
             SystemMessage(content=SYSTEM_PROMPT),
             HumanMessage(content=user_msg),
         ])
         return {"answer": response.content, "sources": sources}
+
+    def ask_stream(self, query: str) -> Iterator[Dict]:
+        """
+        Streaming generator. Yields dicts of shape:
+          { "type": "sources", "data": [...] }     # once, first
+          { "type": "token",   "data": "text..." } # many, as LLM streams
+          { "type": "done",    "data": {...} }     # once, last
+          { "type": "error",   "data": "msg" }     # only on failure
+        """
+        try:
+            context_block, sources, _ = self._retrieve_and_format(query)
+
+            # Emit sources up-front so UI can render the panel immediately
+            yield {"type": "sources", "data": sources or []}
+
+            if context_block is None:
+                refusal = "I don't have enough information in the provided documents to answer that."
+                yield {"type": "token", "data": refusal}
+                yield {"type": "done", "data": {"finish_reason": "no_context"}}
+                return
+
+            user_msg = f"CONTEXT:\n{context_block}\n\nQUESTION: {query}\n\nANSWER (with [n] citations):"
+            messages = [
+                SystemMessage(content=SYSTEM_PROMPT),
+                HumanMessage(content=user_msg),
+            ]
+
+            # LangChain ChatModel.stream() yields message chunks
+            for chunk in self.llm.stream(messages):
+                # chunk.content may be empty for some control chunks; skip those
+                if chunk.content:
+                    yield {"type": "token", "data": chunk.content}
+
+            yield {"type": "done", "data": {"finish_reason": "stop"}}
+
+        except Exception as e:
+            yield {"type": "error", "data": f"Streaming error: {str(e)}"}
 
 
 _agent = None

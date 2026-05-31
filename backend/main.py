@@ -1,20 +1,25 @@
 """
-FastAPI backend for RAG agent v3.
+FastAPI backend for RAG agent v3.3.
 
-Exposes the RAG logic as HTTP endpoints that the React frontend can call.
+Endpoints:
+  GET  /            - service info
+  GET  /health      - health check
+  POST /chat        - non-streaming RAG (legacy / fallback)
+  POST /chat/stream - SSE streaming RAG (modern UI)
 """
+import json
 from contextlib import asynccontextmanager
 from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from typing import List, Dict, Any
+from typing import List, Any
 
 from rag_agent import get_agent
 from ingest import ingest as run_ingest
 
 
-# ---------- Lifecycle: auto-ingest on startup if index missing ----------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     if not Path("chroma_db").exists() or not any(Path("chroma_db").iterdir()):
@@ -27,17 +32,13 @@ async def lifespan(app: FastAPI):
     print("Backend shutting down...")
 
 
-# ---------- FastAPI app ----------
 app = FastAPI(
     title="RAG Agent v3 API",
-    description="Production-grade RAG with citations",
-    version="3.0.0",
+    description="Production-grade RAG: hybrid search + reranker + streaming",
+    version="3.3.0",
     lifespan=lifespan,
 )
 
-
-# ---------- CORS: allow React frontend to call this backend ----------
-# Vite dev server runs on http://localhost:5173 by default
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -50,15 +51,14 @@ app.add_middleware(
 )
 
 
-# ---------- Request/Response schemas ----------
-# Pydantic models = automatic validation + auto-generated API docs
+# ---------- Schemas ----------
 class ChatRequest(BaseModel):
     query: str
 
 class Source(BaseModel):
     id: int
     source: str
-    page: Any  # could be int or "?" string
+    page: Any
     snippet: str
 
 class ChatResponse(BaseModel):
@@ -66,13 +66,12 @@ class ChatResponse(BaseModel):
     sources: List[Source]
 
 
-# ---------- Endpoints ----------
+# ---------- Routes ----------
 @app.get("/")
 def root():
-    """Friendly landing page when someone hits the root URL."""
     return {
         "service": "RAG Agent v3",
-        "version": "3.0.0",
+        "version": "3.3.0",
         "docs": "/docs",
         "health": "/health",
     }
@@ -80,24 +79,62 @@ def root():
 
 @app.get("/health")
 def health():
-    """Health check - frontend can call this to verify backend is alive."""
     return {"status": "ok", "service": "rag-agent-v3"}
 
 
 @app.post("/chat", response_model=ChatResponse)
 def chat(req: ChatRequest):
+    """Non-streaming RAG. Returns the full answer at once."""
+    if not req.query or not req.query.strip():
+        raise HTTPException(status_code=400, detail="Query cannot be empty")
+    try:
+        agent = get_agent()
+        return agent.ask(req.query)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"RAG error: {str(e)}")
+
+
+@app.post("/chat/stream")
+def chat_stream(req: ChatRequest):
     """
-    Main RAG endpoint.
-    Input:  { "query": "your question" }
-    Output: { "answer": "...[1]...", "sources": [{...}, ...] }
+    Streaming RAG via Server-Sent Events.
+
+    Event protocol:
+      event: sources    -> { "sources": [...] }   (sent once, before tokens)
+      event: token      -> { "text": "..." }      (sent many times)
+      event: done       -> { "finish_reason": "stop" }
+      event: error      -> { "message": "..." }
     """
     if not req.query or not req.query.strip():
         raise HTTPException(status_code=400, detail="Query cannot be empty")
 
-    try:
-        agent = get_agent()
-        result = agent.ask(req.query)
-        return result
-    except Exception as e:
-        # In production we'd log this properly; for now just surface the error
-        raise HTTPException(status_code=500, detail=f"RAG error: {str(e)}")
+    def event_generator():
+        try:
+            agent = get_agent()
+            for event in agent.ask_stream(req.query):
+                etype = event["type"]
+                edata = event["data"]
+                if etype == "sources":
+                    payload = json.dumps({"sources": edata})
+                elif etype == "token":
+                    payload = json.dumps({"text": edata})
+                elif etype == "done":
+                    payload = json.dumps(edata)
+                elif etype == "error":
+                    payload = json.dumps({"message": edata})
+                else:
+                    continue
+                # SSE wire format: "event: <name>\ndata: <json>\n\n"
+                yield f"event: {etype}\ndata: {payload}\n\n"
+        except Exception as e:
+            err = json.dumps({"message": f"Server error: {str(e)}"})
+            yield f"event: error\ndata: {err}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",  # disable proxy buffering (useful in prod)
+        },
+    )

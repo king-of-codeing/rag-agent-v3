@@ -1,6 +1,7 @@
 /**
  * Renders the list of chat messages.
- * User messages on the right (blue), AI messages on the left (white card).
+ * User on right (blue), AI on left (white card).
+ * Assistant messages show a blinking cursor while streaming and content is empty.
  */
 import Sources from "./Sources";
 
@@ -14,7 +15,7 @@ function UserMessage({ content }) {
   );
 }
 
-function AssistantMessage({ content, sources, error }) {
+function AssistantMessage({ content, sources, error, streaming }) {
   return (
     <div className="flex justify-start">
       <div className="max-w-[85%] bg-white border border-slate-200 rounded-2xl rounded-bl-sm px-4 py-3 shadow-sm">
@@ -25,7 +26,12 @@ function AssistantMessage({ content, sources, error }) {
         ) : (
           <>
             <div className="whitespace-pre-wrap text-slate-800">
-              {content}
+              {content || (
+                <span className="inline-block w-2 h-4 bg-slate-400 animate-pulse rounded-sm" />
+              )}
+              {streaming && content && (
+                <span className="inline-block w-2 h-4 bg-slate-400 ml-1 animate-pulse rounded-sm align-middle" />
+              )}
             </div>
             <Sources sources={sources} />
           </>
@@ -35,24 +41,10 @@ function AssistantMessage({ content, sources, error }) {
   );
 }
 
-function LoadingMessage() {
-  return (
-    <div className="flex justify-start">
-      <div className="bg-white border border-slate-200 rounded-2xl rounded-bl-sm px-4 py-3 shadow-sm">
-        <div className="flex items-center gap-1">
-          <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
-          <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-          <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-export default function MessageList({ messages, loading }) {
+export default function MessageList({ messages }) {
   return (
     <div className="flex-1 overflow-y-auto px-4 py-6 space-y-4">
-      {messages.length === 0 && !loading && (
+      {messages.length === 0 && (
         <div className="text-center text-slate-400 mt-20">
           <div className="text-5xl mb-3">📚</div>
           <div className="text-lg">Ask a question about your documents</div>
@@ -71,11 +63,10 @@ export default function MessageList({ messages, loading }) {
             content={m.content}
             sources={m.sources}
             error={m.error}
+            streaming={m.streaming}
           />
         )
       )}
-
-      {loading && <LoadingMessage />}
     </div>
   );
 }
