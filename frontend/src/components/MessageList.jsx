@@ -8,7 +8,7 @@ import Sources from "./Sources";
 function UserMessage({ content }) {
   return (
     <div className="flex justify-end">
-      <div className="max-w-[80%] bg-blue-600 text-white rounded-2xl rounded-br-sm px-4 py-3">
+      <div className="max-w-[80%] bg-blue-600 text-white rounded-2xl rounded-br-sm px-4 py-3 text-base font-medium">
         <div className="whitespace-pre-wrap">{content}</div>
       </div>
     </div>
@@ -20,12 +20,12 @@ function AssistantMessage({ content, sources, error, streaming }) {
     <div className="flex justify-start">
       <div className="max-w-[85%] bg-white border border-slate-200 rounded-2xl rounded-bl-sm px-4 py-3 shadow-sm">
         {error ? (
-          <div className="text-red-600">
+          <div className="text-red-600 font-semibold">
             <strong>Error:</strong> {error}
           </div>
         ) : (
           <>
-            <div className="whitespace-pre-wrap text-slate-800">
+            <div className="whitespace-pre-wrap text-slate-900 text-base font-medium leading-relaxed">
               {content || (
                 <span className="inline-block w-2 h-4 bg-slate-400 animate-pulse rounded-sm" />
               )}
@@ -43,13 +43,15 @@ function AssistantMessage({ content, sources, error, streaming }) {
 
 export default function MessageList({ messages }) {
   return (
-    <div className="flex-1 overflow-y-auto px-4 py-6 space-y-4">
+    <div className="flex-1 overflow-y-auto px-4 py-6 space-y-4 bg-white">
       {messages.length === 0 && (
-        <div className="text-center text-slate-400 mt-20">
-          <div className="text-5xl mb-3">📚</div>
-          <div className="text-lg">Ask a question about your documents</div>
-          <div className="text-sm mt-2">
-            Try: "How many days of annual leave do employees get?"
+        <div className="text-center mt-32">
+          <div className="text-6xl mb-6">🤖</div>
+          <div className="text-3xl font-bold text-slate-900 mb-2">
+            Hey! How can I help you?
+          </div>
+          <div className="text-base text-slate-500 font-medium">
+            Ask anything about your documents
           </div>
         </div>
       )}
