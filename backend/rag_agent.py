@@ -1,15 +1,16 @@
 """
-RAG agent v3.3 — adds token streaming via Groq's stream=True API.
-Keeps non-streaming ask() for fallback / batch use cases.
+RAG agent v3.4.2 — hybrid retrieval + cross-encoder reranker + streaming,
+with a hybrid personality prompt that handles greetings/small talk gracefully
+while keeping strict citation grounding for factual document questions.
 
-Pipeline (both modes):
+Pipeline:
   query
-    -> dense (MiniLM/ChromaDB) top-20  ─┐
-                                         ├── RRF fusion → top-20
-    -> sparse (BM25)            top-20  ─┘
+    -> dense (BGE-small/ChromaDB) top-20  ─┐
+                                            ├── RRF fusion → top-20
+    -> sparse (BM25)              top-20  ─┘
     -> cross-encoder rerank → top-5
-    -> Groq (streaming or full)
-    -> answer + sources
+    -> Groq with hybrid personality prompt
+    -> { answer, sources }  OR  streamed tokens
 """
 import os
 from typing import List, Tuple, Dict, Iterator
@@ -29,18 +30,32 @@ EMBED_MODEL = "BAAI/bge-small-en-v1.5"
 RERANKER_MODEL = "BAAI/bge-reranker-base"
 GROQ_MODEL = "llama-3.1-8b-instant"
 
-FETCH_K = 20
-TOP_K = 5
+# Two-stage retrieval knobs
+FETCH_K = 20   # candidates pulled from hybrid retrieval (broad)
+TOP_K = 5      # final chunks sent to LLM (narrow)
 
-SYSTEM_PROMPT = """You are a precise document Q&A assistant.
 
-RULES:
-1. Answer ONLY using the numbered context snippets below.
-2. Cite every factual claim inline using [1], [2], etc. matching the snippet number.
-3. If multiple snippets support a claim, cite all of them like [1][3].
-4. If the answer is not in the context, reply exactly:
-   "I don't have enough information in the provided documents to answer that."
-5. Be concise. Use bullet points for lists.
+SYSTEM_PROMPT = """You are a friendly document Q&A assistant.
+
+GENERAL CHAT BEHAVIOR:
+- If the user greets you (hi, hello, hey, good morning) or asks how you are,
+  respond warmly in 1-2 sentences. Offer to help with the loaded documents.
+- If the user asks who you are or what you can do, briefly explain you're a
+  RAG assistant that answers questions about the loaded documents, with citations.
+- For small talk or meta questions, be conversational and concise. Do not invent
+  facts about the documents.
+
+DOCUMENT Q&A BEHAVIOR:
+- For factual questions, answer ONLY using the numbered context snippets below.
+- Cite every factual claim inline using [1], [2], etc. matching the snippet number.
+- If multiple snippets support a claim, cite all of them like [1][3].
+- If a factual question's answer is not in the context, reply:
+  "I don't have enough information in the provided documents to answer that.
+   Try asking about leave policies, IT FAQs, product specs, security guidelines,
+   API documentation, or onboarding."
+- Be concise. Use bullet points for lists.
+
+Always favor honesty over guessing. Never invent citations.
 """
 
 
@@ -68,7 +83,6 @@ class RAGAgent:
         self.reranker = CrossEncoder(RERANKER_MODEL)
 
         print("Connecting to Groq...")
-        # We instantiate a streaming-capable LLM. Same model, just streaming=True.
         self.llm = ChatGroq(
             model=GROQ_MODEL,
             temperature=0.2,
@@ -77,14 +91,22 @@ class RAGAgent:
         print("RAG agent ready (hybrid + reranker + streaming).")
 
     def _load_all_chunks(self):
+        """
+        Pull all stored Documents out of the Chroma collection so BM25
+        can index the same corpus the vector store sees.
+        """
         from langchain_core.documents import Document
-        raw = self.vectorstore.get()
+        raw = self.vectorstore.get()  # dict: ids, documents, metadatas
         return [
             Document(page_content=text, metadata=meta or {})
             for text, meta in zip(raw["documents"], raw["metadatas"])
         ]
 
     def _rerank(self, query: str, docs) -> list:
+        """
+        Cross-encoder reranks (query, chunk) pairs and returns the top-K
+        documents by relevance score.
+        """
         if not docs:
             return []
         pairs = [(query, d.page_content) for d in docs]
@@ -93,6 +115,10 @@ class RAGAgent:
         return [doc for doc, _score in ranked[:TOP_K]]
 
     def _format_context(self, docs) -> Tuple[str, List[Dict]]:
+        """
+        Build the numbered context block sent to the LLM and a parallel
+        list of source records returned to the frontend.
+        """
         context_lines = []
         sources = []
         for i, d in enumerate(docs, start=1):
@@ -120,13 +146,19 @@ class RAGAgent:
     def ask(self, query: str) -> Dict:
         """Non-streaming: full answer returned at once."""
         context_block, sources, _ = self._retrieve_and_format(query)
-        if context_block is None:
-            return {
-                "answer": "I don't have enough information in the provided documents to answer that.",
-                "sources": [],
-            }
 
-        user_msg = f"CONTEXT:\n{context_block}\n\nQUESTION: {query}\n\nANSWER (with [n] citations):"
+        # If no retrieval results, still let the LLM handle chat/greetings
+        # via the system prompt; we just send empty context.
+        if context_block is None:
+            context_block = "(no relevant document snippets retrieved)"
+            sources = []
+
+        user_msg = (
+            f"CONTEXT:\n{context_block}\n\n"
+            f"QUESTION: {query}\n\n"
+            f"ANSWER (with [n] citations if drawing on context):"
+        )
+
         response = self.llm.invoke([
             SystemMessage(content=SYSTEM_PROMPT),
             HumanMessage(content=user_msg),
@@ -144,24 +176,23 @@ class RAGAgent:
         try:
             context_block, sources, _ = self._retrieve_and_format(query)
 
-            # Emit sources up-front so UI can render the panel immediately
+            # Send sources up-front so UI can render the panel early
             yield {"type": "sources", "data": sources or []}
 
             if context_block is None:
-                refusal = "I don't have enough information in the provided documents to answer that."
-                yield {"type": "token", "data": refusal}
-                yield {"type": "done", "data": {"finish_reason": "no_context"}}
-                return
+                context_block = "(no relevant document snippets retrieved)"
 
-            user_msg = f"CONTEXT:\n{context_block}\n\nQUESTION: {query}\n\nANSWER (with [n] citations):"
+            user_msg = (
+                f"CONTEXT:\n{context_block}\n\n"
+                f"QUESTION: {query}\n\n"
+                f"ANSWER (with [n] citations if drawing on context):"
+            )
             messages = [
                 SystemMessage(content=SYSTEM_PROMPT),
                 HumanMessage(content=user_msg),
             ]
 
-            # LangChain ChatModel.stream() yields message chunks
             for chunk in self.llm.stream(messages):
-                # chunk.content may be empty for some control chunks; skip those
                 if chunk.content:
                     yield {"type": "token", "data": chunk.content}
 
@@ -171,6 +202,7 @@ class RAGAgent:
             yield {"type": "error", "data": f"Streaming error: {str(e)}"}
 
 
+# Singleton: load models once, reuse across all requests
 _agent = None
 def get_agent() -> RAGAgent:
     global _agent

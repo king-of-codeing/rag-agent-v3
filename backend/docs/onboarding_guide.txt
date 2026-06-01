@@ -1,0 +1,40 @@
+ACME CORPORATION — NEW HIRE ONBOARDING GUIDE
+Welcome to Acme!
+
+DAY 1 CHECKLIST
+1. Pick up your laptop from IT (Building B, Floor 3, Room 314).
+2. Set up your password at the self-service portal.
+3. Install the corporate VPN client from the IT Software Center.
+4. Enable two-factor authentication on all accounts.
+5. Complete the security awareness training (60 min, mandatory).
+
+WEEK 1 CHECKLIST
+- Meet your manager and team
+- Review the Employee Policy Handbook (covers leave, WFH, expenses)
+- Read the Information Security Handbook
+- Set up your development environment (engineers only — see API docs)
+- Schedule a 1:1 with your buddy
+
+FIRST 30 DAYS
+- Complete role-specific training modules in the LMS
+- Shadow a senior team member for at least 5 hours
+- Set your first quarterly OKR goals with your manager
+- Familiarize yourself with the Acme Platform API if applicable
+
+KEY CONTACTS
+- IT Help Desk: extension 4357 (HELP)
+- HR: extension 4472 (HIRE)
+- Security incidents: security@acme-example.com or extension SEC-911
+- Facilities: extension 3325 (FACE)
+
+BENEFITS HIGHLIGHTS
+- 24 days paid annual leave
+- 12 days sick leave  
+- Comprehensive health insurance from day 1
+- 401(k) match up to 5%
+- $1,500 annual learning budget
+- WFH up to 3 days per week (with manager approval)
+
+YOUR FIRST QUESTIONS
+Ask your manager, your buddy, or the HR team. There are no dumb questions in week 1.
+Welcome aboard!

@@ -1,0 +1,37 @@
+ACME CORPORATION — INFORMATION SECURITY HANDBOOK
+Version 4.0
+
+SECTION 1: ACCEPTABLE USE
+Page 1
+Acme systems and data may only be used for authorized business purposes.
+Personal use of company devices is permitted only during breaks and must not interfere with work.
+Streaming, gaming, and torrenting on the corporate network are strictly prohibited.
+
+SECTION 2: PHISHING AND EMAIL SECURITY
+Page 2
+Never click links in unsolicited emails, even from familiar-looking senders.
+Verify suspicious emails by contacting the sender through a separate channel.
+Report all phishing attempts to security@acme-example.com immediately.
+Phishing simulations are conducted quarterly; failure requires mandatory retraining.
+
+SECTION 3: DEVICE SECURITY
+Page 3
+All company laptops must have full-disk encryption enabled (FileVault for Mac, BitLocker for Windows).
+Screen lock must engage after 5 minutes of inactivity.
+Lost or stolen devices must be reported within 1 hour to IT security.
+Two-factor authentication is mandatory for all corporate accounts.
+
+SECTION 4: DATA CLASSIFICATION
+Page 4
+Public: marketing materials, public press releases.
+Internal: org charts, internal wikis, project plans.
+Confidential: customer data, financial records, source code.
+Restricted: trade secrets, M&A discussions, security keys.
+Confidential and Restricted data must never leave approved systems.
+
+SECTION 5: INCIDENT REPORTING
+Page 5
+Report any suspected security incident to security@acme-example.com within 1 hour.
+Do not attempt to investigate or remediate yourself.
+Preserve evidence — do not delete logs, emails, or files related to the incident.
+On-call security responds 24/7 at extension SEC-911.
