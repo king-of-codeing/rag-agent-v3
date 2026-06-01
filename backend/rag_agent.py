@@ -1,7 +1,7 @@
 """
-RAG agent v3.4.2 — hybrid retrieval + cross-encoder reranker + streaming,
-with a hybrid personality prompt that handles greetings/small talk gracefully
-while keeping strict citation grounding for factual document questions.
+RAG agent v3.5 — hybrid retrieval + cross-encoder reranker + streaming,
+with a hybrid personality prompt and a refresh_corpus() method so the
+agent can be re-pointed at the updated index after document uploads/deletes.
 
 Pipeline:
   query
@@ -90,7 +90,7 @@ class RAGAgent:
         )
         print("RAG agent ready (hybrid + reranker + streaming).")
 
-    def _load_all_chunks(self):
+    def _load_all_chunks(self) -> List:
         """
         Pull all stored Documents out of the Chroma collection so BM25
         can index the same corpus the vector store sees.
@@ -102,7 +102,25 @@ class RAGAgent:
             for text, meta in zip(raw["documents"], raw["metadatas"])
         ]
 
-    def _rerank(self, query: str, docs) -> list:
+    def refresh_corpus(self) -> None:
+        """
+        Reload the vectorstore + rebuild the hybrid retriever after corpus changes
+        (uploads or deletes). Keeps the embedder and reranker cached in memory.
+        """
+        print("Refreshing corpus...")
+        self.vectorstore = Chroma(
+            persist_directory=CHROMA_DIR,
+            embedding_function=self.embeddings,
+        )
+        all_chunks = self._load_all_chunks()
+        self.hybrid = HybridRetriever(
+            vectorstore=self.vectorstore,
+            chunks=all_chunks,
+            fetch_k=FETCH_K,
+        )
+        print(f"Corpus refreshed: {len(all_chunks)} chunks.")
+
+    def _rerank(self, query: str, docs: list) -> list:
         """
         Cross-encoder reranks (query, chunk) pairs and returns the top-K
         documents by relevance score.
@@ -114,7 +132,7 @@ class RAGAgent:
         ranked = sorted(zip(docs, scores), key=lambda x: x[1], reverse=True)
         return [doc for doc, _score in ranked[:TOP_K]]
 
-    def _format_context(self, docs) -> Tuple[str, List[Dict]]:
+    def _format_context(self, docs: list) -> Tuple[str, List[Dict]]:
         """
         Build the numbered context block sent to the LLM and a parallel
         list of source records returned to the frontend.
@@ -147,8 +165,7 @@ class RAGAgent:
         """Non-streaming: full answer returned at once."""
         context_block, sources, _ = self._retrieve_and_format(query)
 
-        # If no retrieval results, still let the LLM handle chat/greetings
-        # via the system prompt; we just send empty context.
+        # Allow LLM to handle chat/greetings even when retrieval is empty
         if context_block is None:
             context_block = "(no relevant document snippets retrieved)"
             sources = []
@@ -203,7 +220,8 @@ class RAGAgent:
 
 
 # Singleton: load models once, reuse across all requests
-_agent = None
+_agent: RAGAgent | None = None
+
 def get_agent() -> RAGAgent:
     global _agent
     if _agent is None:

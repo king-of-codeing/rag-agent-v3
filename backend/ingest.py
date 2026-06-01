@@ -1,6 +1,9 @@
 """
 Ingest documents from docs/ into ChromaDB.
-Each chunk stores metadata (source, page, chunk_id) for citation tracking.
+
+Clears the existing Chroma collection through its API (instead of deleting
+the folder) so this works safely even on Windows when the agent already has
+the database open.
 """
 from pathlib import Path
 from langchain_community.document_loaders import (
@@ -15,6 +18,7 @@ from langchain_chroma import Chroma
 DOCS_DIR = Path("docs")
 CHROMA_DIR = "chroma_db"
 EMBED_MODEL = "BAAI/bge-small-en-v1.5"
+
 
 def load_documents():
     documents = []
@@ -46,10 +50,30 @@ def load_documents():
 
 def ingest():
     print("Starting ingestion...")
+
+    embeddings = HuggingFaceEmbeddings(model_name=EMBED_MODEL)
+
+    # Open (or create) the existing persistent collection
+    vectorstore = Chroma(
+        persist_directory=CHROMA_DIR,
+        embedding_function=embeddings,
+    )
+
+    # Clear existing chunks via the API (no file locks)
+    try:
+        existing = vectorstore.get()
+        ids = existing.get("ids", []) or []
+        if ids:
+            print(f"Clearing {len(ids)} existing chunks from collection...")
+            vectorstore.delete(ids=ids)
+    except Exception as e:
+        print(f"Warning: could not clear existing chunks: {e}")
+
+    # Load fresh docs
     docs = load_documents()
     if not docs:
-        print("No documents found in docs/. Add files and rerun.")
-        return None
+        print("No documents found in docs/. Index is now empty.")
+        return vectorstore
 
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=800,
@@ -63,13 +87,8 @@ def ingest():
 
     print(f"Created {len(chunks)} chunks from {len(docs)} pages")
 
-    embeddings = HuggingFaceEmbeddings(model_name=EMBED_MODEL)
-
-    vectorstore = Chroma.from_documents(
-        documents=chunks,
-        embedding=embeddings,
-        persist_directory=CHROMA_DIR,
-    )
+    # Add new chunks to the (now empty) persistent collection
+    vectorstore.add_documents(chunks)
     print(f"Saved index to {CHROMA_DIR}/")
     return vectorstore
 

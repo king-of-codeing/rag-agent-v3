@@ -1,17 +1,20 @@
 """
-FastAPI backend for RAG agent v3.3.
+FastAPI backend for RAG agent v3.5.
 
 Endpoints:
-  GET  /            - service info
-  GET  /health      - health check
-  POST /chat        - non-streaming RAG (legacy / fallback)
-  POST /chat/stream - SSE streaming RAG (modern UI)
+  GET    /             - service info
+  GET    /health       - health check
+  POST   /chat         - non-streaming RAG (legacy / fallback)
+  POST   /chat/stream  - SSE streaming RAG
+  GET    /docs/list    - list indexed documents
+  POST   /upload       - upload + re-ingest a new document
+  DELETE /docs/{name}  - delete + re-ingest after removal
 """
 import os
 import json
 from contextlib import asynccontextmanager
 from pathlib import Path
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -21,21 +24,23 @@ from rag_agent import get_agent
 from ingest import ingest as run_ingest
 
 
+# ---------- Constants ----------
+DOCS_DIR = Path("docs")
+ALLOWED_EXTENSIONS = {".pdf", ".txt", ".md", ".markdown"}
+MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
+
+
 # ---------- Lifecycle: ingest + eager-load on startup ----------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Ensure ChromaDB index exists
     if not Path("chroma_db").exists() or not any(Path("chroma_db").iterdir()):
         print("No ChromaDB index found - running ingestion...")
         run_ingest()
     else:
         print("ChromaDB index found - skipping ingestion")
 
-    # Eagerly load the RAG agent (models, vectorstore, reranker) at startup.
-    # This avoids slow lazy loading on the first /chat request, which can
-    # trigger Render's request-timeout and worker restarts.
     print("Pre-loading RAG agent (this is the slow part)...")
-    _ = get_agent()  # triggers RAGAgent.__init__ once, caches the singleton
+    _ = get_agent()
     print("Backend ready to serve requests!")
 
     yield
@@ -45,8 +50,8 @@ async def lifespan(app: FastAPI):
 # ---------- FastAPI app ----------
 app = FastAPI(
     title="RAG Agent v3 API",
-    description="Production-grade RAG: hybrid search + reranker + streaming",
-    version="3.4.0",
+    description="Production-grade RAG: hybrid search + reranker + streaming + uploads",
+    version="3.5.0",
     lifespan=lifespan,
 )
 
@@ -57,12 +62,10 @@ ALLOWED_ORIGINS = [
     "http://127.0.0.1:5173",
 ]
 
-# Production: add Vercel URL from env (set in HF Space secrets later)
 frontend_url = os.getenv("FRONTEND_URL")
 if frontend_url:
     ALLOWED_ORIGINS.append(frontend_url)
 
-# Allow Vercel + HF Spaces preview URLs without needing to update env vars
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
@@ -88,12 +91,12 @@ class ChatResponse(BaseModel):
     sources: List[Source]
 
 
-# ---------- Routes ----------
+# ---------- Core routes ----------
 @app.get("/")
 def root():
     return {
         "service": "RAG Agent v3",
-        "version": "3.4.0",
+        "version": "3.5.0",
         "docs": "/docs",
         "health": "/health",
     }
@@ -159,3 +162,88 @@ def chat_stream(req: ChatRequest):
             "X-Accel-Buffering": "no",
         },
     )
+
+
+# ---------- Document management endpoints ----------
+
+@app.get("/docs/list")
+def list_docs():
+    """Return all currently indexed documents in docs/."""
+    if not DOCS_DIR.exists():
+        return {"documents": []}
+    docs = []
+    for f in sorted(DOCS_DIR.iterdir()):
+        if f.is_file() and f.suffix.lower() in ALLOWED_EXTENSIONS:
+            docs.append({
+                "name": f.name,
+                "size": f.stat().st_size,
+            })
+    return {"documents": docs}
+
+
+@app.post("/upload")
+async def upload_doc(file: UploadFile = File(...)):
+    """
+    Accept a document upload, save to docs/, and re-ingest the corpus.
+    Returns when ingestion is complete (synchronous for simplicity).
+    """
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No filename provided")
+
+    safe_name = Path(file.filename).name  # prevent path traversal
+    suffix = Path(safe_name).suffix.lower()
+
+    if suffix not in ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file type. Allowed: {', '.join(sorted(ALLOWED_EXTENSIONS))}",
+        )
+
+    content = await file.read()
+    if len(content) > MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=400,
+            detail=f"File too large (max {MAX_FILE_SIZE // 1024 // 1024} MB)",
+        )
+
+    DOCS_DIR.mkdir(exist_ok=True)
+    dest = DOCS_DIR / safe_name
+    with open(dest, "wb") as f:
+        f.write(content)
+
+    try:
+        run_ingest()
+        get_agent().refresh_corpus()
+    except Exception as e:
+        # Roll back: remove the file we just saved if ingestion failed
+        try:
+            dest.unlink()
+        except Exception:
+            pass
+        raise HTTPException(status_code=500, detail=f"Ingestion failed: {str(e)}")
+
+    return {
+        "status": "indexed",
+        "filename": safe_name,
+        "size": len(content),
+    }
+
+
+@app.delete("/docs/{filename}")
+def delete_doc(filename: str):
+    """Delete a document and re-ingest the remaining corpus."""
+    safe_name = Path(filename).name
+    file_path = DOCS_DIR / safe_name
+
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(status_code=404, detail=f"Document not found: {safe_name}")
+
+    file_path.unlink()
+
+    try:
+        run_ingest()
+        get_agent().refresh_corpus()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Re-ingestion failed: {str(e)}")
+
+    return {"status": "deleted", "filename": safe_name}

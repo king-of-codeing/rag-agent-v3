@@ -123,3 +123,35 @@ export async function healthCheck() {
   const response = await fetch(`${API_URL}/health`);
   return response.json();
 }
+export async function listDocs() {
+  const response = await fetch(`${API_URL}/docs/list`);
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  return response.json(); // { documents: [{name, size}, ...] }
+}
+
+export async function uploadDoc(file, { onProgress } = {}) {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const response = await fetch(`${API_URL}/upload`, {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: "Upload failed" }));
+    throw new Error(err.detail || `HTTP ${response.status}`);
+  }
+  return response.json(); // { status, filename, size }
+}
+
+export async function deleteDoc(filename) {
+  const response = await fetch(`${API_URL}/docs/${encodeURIComponent(filename)}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: "Delete failed" }));
+    throw new Error(err.detail || `HTTP ${response.status}`);
+  }
+  return response.json();
+}
