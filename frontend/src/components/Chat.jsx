@@ -1,67 +1,52 @@
 /**
- * Main chat container — streaming, white background, bold text,
- * "New chat" + "Documents" icon buttons, and an integrated docs library modal.
+ * Main chat container with sidebar layout, empty state, citation-aware
+ * messages, docs modal, and keyboard shortcuts.
  */
 import { useState, useRef, useEffect } from "react";
 import { chatStream } from "../lib/api";
+import { useKeyboardShortcuts } from "../lib/useKeyboardShortcuts";
+import Sidebar from "./Sidebar";
 import MessageList from "./MessageList";
+import EmptyState from "./EmptyState";
 import DocsLibrary from "./DocsLibrary";
-
-// Inline SVG icon for "new chat" (pencil-on-square style)
-function NewChatIcon() {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className="w-5 h-5"
-    >
-      <path d="M4 4h9" />
-      <path d="M4 4v16h16v-9" />
-      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L13 14l-4 1 1-4 8.5-8.5z" />
-    </svg>
-  );
-}
-
-// Inline SVG icon for "documents" (book/folder hybrid)
-function DocsIcon() {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className="w-5 h-5"
-    >
-      <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-      <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
-    </svg>
-  );
-}
+import CommandHints from "./CommandHints";
 
 export default function Chat() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [docsOpen, setDocsOpen] = useState(false);
+  const [hintsOpen, setHintsOpen] = useState(false);
+  const [corpusVersion, setCorpusVersion] = useState(0); // triggers sidebar count refresh
   const bottomRef = useRef(null);
+  const inputRef = useRef(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, streaming]);
 
-  async function handleSubmit(e) {
-    e.preventDefault();
-    const query = input.trim();
-    if (!query || streaming) return;
+  function handleNewChat() {
+    if (streaming) return;
+    setMessages([]);
+    setTimeout(() => inputRef.current?.focus(), 10);
+  }
 
+  function handleOpenDocs() {
+    setDocsOpen(true);
+  }
+
+  function handleShowHints() {
+    setHintsOpen((open) => !open);
+  }
+
+  useKeyboardShortcuts({
+    onNewChat: handleNewChat,
+    onOpenDocs: handleOpenDocs,
+    onShowHints: handleShowHints,
+  });
+
+  async function submitQuery(query) {
+    if (!query || streaming) return;
     setMessages((m) => [
       ...m,
       { role: "user", content: query },
@@ -80,12 +65,9 @@ export default function Chat() {
     };
 
     await chatStream(query, {
-      onSources: (sources) => {
-        updateLast((last) => ({ ...last, sources }));
-      },
-      onToken: (text) => {
-        updateLast((last) => ({ ...last, content: last.content + text }));
-      },
+      onSources: (sources) => updateLast((last) => ({ ...last, sources })),
+      onToken: (text) =>
+        updateLast((last) => ({ ...last, content: last.content + text })),
       onDone: () => {
         updateLast((last) => ({ ...last, streaming: false }));
         setStreaming(false);
@@ -102,84 +84,97 @@ export default function Chat() {
     });
   }
 
-  function handleNewChat() {
-    if (streaming) return;
-    setMessages([]);
+  function handleSubmit(e) {
+    e.preventDefault();
+    submitQuery(input.trim());
   }
 
   return (
-    <div className="flex flex-col h-screen bg-white">
-      {/* Header */}
-      <header className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between shadow-sm">
-        <div className="flex items-center gap-3">
-          <div className="text-2xl">🤖</div>
-          <div>
-            <h1 className="text-lg font-bold text-slate-900">RAG Agent v3</h1>
-            <div className="text-xs text-slate-500 font-medium">
-              Hybrid search · Reranker · Streaming · Uploads
-            </div>
-          </div>
-        </div>
-        <div className="flex items-center gap-1">
-          <button
-            onClick={() => setDocsOpen(true)}
-            title="Documents"
-            aria-label="Documents"
-            className="p-2 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition"
-          >
-            <DocsIcon />
-          </button>
-          <button
-            onClick={handleNewChat}
-            disabled={messages.length === 0 || streaming}
-            title="New chat"
-            aria-label="New chat"
-            className="p-2 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed transition"
-          >
-            <NewChatIcon />
-          </button>
-        </div>
-      </header>
-
-      {/* Message area */}
-      <div className="flex-1 overflow-hidden max-w-3xl w-full mx-auto flex flex-col bg-white">
-        <MessageList messages={messages} loading={false} />
-        <div ref={bottomRef} />
-      </div>
-
-      {/* Input bar */}
-      <form
-        onSubmit={handleSubmit}
-        className="bg-white border-t border-slate-200 p-4"
-      >
-        <div className="max-w-3xl mx-auto flex gap-2">
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="Ask anything..."
-            disabled={streaming}
-            autoFocus
-            className="flex-1 border border-slate-300 rounded-xl px-4 py-3 text-base font-medium text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-slate-100"
-          />
-          <button
-            type="submit"
-            disabled={!input.trim() || streaming}
-            className="bg-blue-600 text-white px-6 py-3 rounded-xl font-semibold hover:bg-blue-700 transition disabled:bg-slate-300 disabled:cursor-not-allowed"
-          >
-            {streaming ? "..." : "Send"}
-          </button>
-        </div>
-      </form>
-
-      {/* Documents library modal */}
-      <DocsLibrary
-        open={docsOpen}
-        onClose={() => setDocsOpen(false)}
-        onCorpusChanged={() => {
-          // No auto-clear of chat. Users keep their chat history when corpus changes.
-        }}
+    <div className="flex h-screen bg-white">
+      <Sidebar
+        onNewChat={handleNewChat}
+        onOpenDocs={handleOpenDocs}
+        onPromptClick={(q) => submitQuery(q)}
+        corpusVersion={corpusVersion}
       />
+
+      {/* Main column */}
+      <main className="flex-1 flex flex-col min-w-0">
+        {/* Top bar */}
+        <header className="px-6 py-3.5 border-b border-slate-200 flex items-center justify-between bg-white/80 backdrop-blur-sm sticky top-0 z-10">
+          <div className="text-sm font-bold text-slate-700">
+            {messages.length === 0 ? "New conversation" : `Conversation · ${Math.ceil(messages.length / 2)} ${messages.length / 2 === 1 ? "turn" : "turns"}`}
+          </div>
+          <button
+            onClick={handleShowHints}
+            className="text-xs text-slate-500 hover:text-slate-900 font-semibold flex items-center gap-1.5 px-2.5 py-1 rounded-md hover:bg-slate-100 transition-colors"
+            title="Show keyboard shortcuts"
+          >
+            <kbd className="font-mono">⌘</kbd>
+            <kbd className="font-mono">/</kbd>
+            <span>shortcuts</span>
+          </button>
+        </header>
+
+        {/* Chat area */}
+        <div className="flex-1 overflow-hidden flex flex-col max-w-3xl w-full mx-auto">
+          {messages.length === 0 ? (
+            <EmptyState onChipClick={(q) => submitQuery(q)} />
+          ) : (
+            <MessageList messages={messages} />
+          )}
+          <div ref={bottomRef} />
+        </div>
+
+        {/* Input bar */}
+        <form
+          onSubmit={handleSubmit}
+          className="border-t border-slate-200 bg-white px-6 py-4"
+        >
+          <div className="max-w-3xl mx-auto flex gap-2 items-end">
+            <div className="flex-1 relative">
+              <input
+                ref={inputRef}
+                type="text"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder="Ask anything..."
+                disabled={streaming}
+                autoFocus
+                className="w-full border border-slate-300 rounded-xl pl-4 pr-12 py-3.5 text-[15px] font-medium text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-slate-50 shadow-sm"
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={!input.trim() || streaming}
+              className="bg-gradient-to-br from-indigo-600 to-violet-600 text-white px-5 py-3.5 rounded-xl font-bold hover:shadow-lg hover:shadow-indigo-500/40 transition-all disabled:bg-slate-300 disabled:from-slate-300 disabled:to-slate-300 disabled:shadow-none disabled:cursor-not-allowed flex items-center gap-1.5"
+            >
+              {streaming ? (
+                <span className="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+              ) : (
+                <>
+                  <span>Send</span>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-4 h-4">
+                    <path d="M5 12h14M13 5l7 7-7 7" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </>
+              )}
+            </button>
+          </div>
+          <div className="max-w-3xl mx-auto mt-2 text-[11px] text-slate-400 text-center font-medium">
+            Responses are grounded in your indexed documents.
+            Press <kbd className="px-1 py-0.5 bg-slate-100 rounded font-mono">⌘J</kbd> for new chat.
+          </div>
+        </form>
+
+        {/* Modals */}
+        <DocsLibrary
+          open={docsOpen}
+          onClose={() => setDocsOpen(false)}
+          onCorpusChanged={() => setCorpusVersion((v) => v + 1)}
+        />
+        <CommandHints open={hintsOpen} onClose={() => setHintsOpen(false)} />
+      </main>
     </div>
   );
 }
