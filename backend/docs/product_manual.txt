@@ -1,27 +1,40 @@
-ACME CORPORATION - EMPLOYEE POLICY HANDBOOK
-Version 2026.1
+ACME SMARTHUB X1 — PRODUCT MANUAL
+Model: SH-X1-2026
+Version 3.2
 
-SECTION 1: LEAVE POLICY
+SECTION 1: GETTING STARTED
 Page 1
-All full-time employees are entitled to 24 days of paid annual leave per calendar year.
-Leave must be requested at least 7 days in advance through the HR portal.
-Unused leave (up to 5 days) can be carried over to the next calendar year.
-Sick leave is granted for up to 12 days per year and requires a medical certificate beyond 2 consecutive days.
+Welcome to the Acme SmartHub X1. Before first use, charge the device for at least 4 hours using the included USB-C cable.
+The status LED will turn solid green when charging is complete.
+Press and hold the power button for 3 seconds to turn the device on.
 
-SECTION 2: WORK FROM HOME POLICY
+SECTION 2: WIFI SETUP
 Page 2
-Employees may work from home up to 3 days per week, subject to manager approval.
-Remote workers must be available during core hours: 10:00 AM to 4:00 PM (local time zone).
-Company-issued laptops must be used for all work; personal devices are not permitted for accessing internal systems.
+The SmartHub X1 supports both 2.4 GHz and 5 GHz WiFi networks.
+To connect: open the Acme Home app, tap "Add Device", and follow the on-screen prompts.
+If pairing fails, perform a factory reset by holding the reset button for 10 seconds until the LED blinks red.
 
-SECTION 3: EXPENSE REIMBURSEMENT
+SECTION 3: TROUBLESHOOTING
 Page 3
-Business expenses must be submitted within 30 days of incurrence.
-Receipts are mandatory for all expenses above $25.
-Approved categories include travel, client meals, office supplies, and professional development courses up to $1,500 per year.
+Problem: Device won't power on.
+Solution: Ensure the battery is charged. If the LED does not light up during charging, contact support.
 
-SECTION 4: CODE OF CONDUCT
+Problem: WiFi connection drops frequently.
+Solution: Move the device closer to your router. Walls and metal objects can weaken the signal.
+
+Problem: App cannot find the device.
+Solution: Make sure Bluetooth is enabled on your phone and you are within 10 meters of the SmartHub.
+
+SECTION 4: WARRANTY
 Page 4
-All employees are expected to maintain professional conduct in the workplace.
-Harassment, discrimination, or any form of misconduct will result in disciplinary action up to and including termination.
-Conflicts of interest must be disclosed to HR within 5 business days of arising.
+The SmartHub X1 comes with a 2-year limited warranty covering manufacturing defects.
+The warranty does not cover damage from misuse, water exposure, or unauthorized repairs.
+To file a warranty claim, contact support@acme-example.com with your serial number and proof of purchase.
+
+SECTION 5: SPECIFICATIONS
+Page 5
+Battery: 2400 mAh Li-ion, ~8 hours typical use
+Connectivity: WiFi 6, Bluetooth 5.3, USB-C
+Dimensions: 120mm x 80mm x 25mm
+Weight: 180g
+Operating temperature: 0°C to 40°C

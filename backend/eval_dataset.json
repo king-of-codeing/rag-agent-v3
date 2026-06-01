@@ -1,0 +1,130 @@
+{
+  "version": "1.0",
+  "description": "Golden Q&A test cases for RAG agent v3 evaluation. Covers single-doc factual, multi-doc reasoning, paraphrase, natural phrasing, section lookup, specific values, and grounded refusal.",
+  "test_cases": [
+    {
+      "id": "leave_basic",
+      "query": "How many days of annual leave do employees get?",
+      "expected_source": "company_policy.txt",
+      "expected_keywords": ["24", "days", "annual"],
+      "category": "single_doc_factual"
+    },
+    {
+      "id": "leave_carryover",
+      "query": "Can I carry over unused leave?",
+      "expected_source": "company_policy.txt",
+      "expected_keywords": ["5", "carried over"],
+      "category": "single_doc_factual"
+    },
+    {
+      "id": "wfh_days",
+      "query": "How many days per week can I work from home?",
+      "expected_source": "company_policy.txt",
+      "expected_keywords": ["3", "days", "manager approval"],
+      "category": "single_doc_factual"
+    },
+    {
+      "id": "expense_limit",
+      "query": "How much can I expense for professional development?",
+      "expected_source": "company_policy.txt",
+      "expected_keywords": ["1500", "1,500", "professional development"],
+      "category": "single_doc_factual"
+    },
+    {
+      "id": "password_reset",
+      "query": "How do I reset my password?",
+      "expected_source": "it_faq.md",
+      "expected_keywords": ["passwords.acme-example.com", "12 characters"],
+      "category": "single_doc_factual"
+    },
+    {
+      "id": "vpn_requirement",
+      "query": "Do I need VPN to work from home?",
+      "expected_source": "it_faq.md",
+      "expected_keywords": ["VPN", "required", "internal systems"],
+      "category": "cross_doc_potential"
+    },
+    {
+      "id": "laptop_request",
+      "query": "How do I request a new laptop?",
+      "expected_source": "it_faq.md",
+      "expected_keywords": ["IT Service Catalog", "5 business days"],
+      "category": "single_doc_factual"
+    },
+    {
+      "id": "smarthub_warranty",
+      "query": "What's the warranty on the SmartHub X1?",
+      "expected_source": "product_manual.txt",
+      "expected_keywords": ["2-year", "manufacturing defects"],
+      "category": "single_doc_factual"
+    },
+    {
+      "id": "smarthub_charge",
+      "query": "How long should I charge the SmartHub before first use?",
+      "expected_source": "product_manual.txt",
+      "expected_keywords": ["4 hours", "USB-C"],
+      "category": "single_doc_factual"
+    },
+    {
+      "id": "security_incident",
+      "query": "How do I report a security incident?",
+      "expected_source": "security_handbook.txt",
+      "expected_keywords": ["security@acme-example.com", "1 hour"],
+      "category": "single_doc_factual"
+    },
+    {
+      "id": "api_auth",
+      "query": "How do I authenticate API requests?",
+      "expected_source": "api_documentation.md",
+      "expected_keywords": ["Authorization", "Bearer", "API key"],
+      "category": "single_doc_factual"
+    },
+    {
+      "id": "out_of_scope",
+      "query": "What's the company stock price?",
+      "expected_source": null,
+      "expected_keywords": ["don't have enough information", "not in", "documents"],
+      "category": "grounded_refusal"
+    },
+    {
+      "id": "multi_doc_wfh",
+      "query": "Can I work from home and what do I need to set up to do it?",
+      "expected_source": "company_policy.txt",
+      "expected_keywords": ["3 days", "VPN", "manager"],
+      "category": "multi_doc_reasoning",
+      "note": "Tests cross-doc reasoning between WFH policy and IT VPN setup"
+    },
+    {
+      "id": "paraphrase_leave",
+      "query": "What's my time off allowance for vacation?",
+      "expected_source": "company_policy.txt",
+      "expected_keywords": ["24", "annual"],
+      "category": "paraphrase",
+      "note": "Tests semantic match without literal 'leave' keyword"
+    },
+    {
+      "id": "ambiguous_password",
+      "query": "I forgot my password — what do I do?",
+      "expected_source": "it_faq.md",
+      "expected_keywords": ["reset", "self-service portal"],
+      "category": "natural_phrasing",
+      "note": "Tests natural conversational phrasing"
+    },
+    {
+      "id": "section_lookup",
+      "query": "What does Section 4 of the code of conduct say?",
+      "expected_source": "company_policy.txt",
+      "expected_keywords": ["harassment", "conflicts of interest"],
+      "category": "keyword_heavy",
+      "note": "Tests BM25 strength — exact section reference"
+    },
+    {
+      "id": "specific_value",
+      "query": "What's the maximum amount per person for client meals?",
+      "expected_source": "company_policy.txt",
+      "expected_keywords": ["75", "client meals"],
+      "category": "specific_value",
+      "note": "Tests precise value retrieval"
+    }
+  ]
+}

@@ -1,15 +1,19 @@
 """
 Ingest documents from docs/ into ChromaDB.
 
-Clears the existing Chroma collection through its API (instead of deleting
-the folder) so this works safely even on Windows when the agent already has
-the database open.
+Key design choices:
+- Clears the existing Chroma collection through its API (instead of deleting
+  the folder) so this works safely even on Windows when the agent already has
+  the database open.
+- Loads .md and .markdown files as plain text via TextLoader. The
+  UnstructuredMarkdownLoader has fragile system dependencies; treating
+  markdown as plain text is simpler and works reliably across platforms.
+  Embeddings don't care about markdown syntax — only about the content.
 """
 from pathlib import Path
 from langchain_community.document_loaders import (
     PyPDFLoader,
     TextLoader,
-    UnstructuredMarkdownLoader,
 )
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -21,7 +25,14 @@ EMBED_MODEL = "BAAI/bge-small-en-v1.5"
 
 
 def load_documents():
+    """
+    Walk docs/ and load every supported file as a list of LangChain Documents.
+    Returns an empty list if docs/ is missing or contains no supported files.
+    """
     documents = []
+    if not DOCS_DIR.exists():
+        return documents
+
     for filepath in DOCS_DIR.glob("*"):
         if filepath.is_dir():
             continue
@@ -29,10 +40,9 @@ def load_documents():
         try:
             if suffix == ".pdf":
                 loader = PyPDFLoader(str(filepath))
-            elif suffix == ".txt":
+            elif suffix in (".txt", ".md", ".markdown"):
+                # Treat markdown as plain text for reliable cross-platform loading.
                 loader = TextLoader(str(filepath), encoding="utf-8")
-            elif suffix in (".md", ".markdown"):
-                loader = UnstructuredMarkdownLoader(str(filepath))
             else:
                 print(f"Skipping unsupported file: {filepath.name}")
                 continue
@@ -59,7 +69,7 @@ def ingest():
         embedding_function=embeddings,
     )
 
-    # Clear existing chunks via the API (no file locks)
+    # Clear existing chunks via the API (no file locks on Windows)
     try:
         existing = vectorstore.get()
         ids = existing.get("ids", []) or []
@@ -69,7 +79,7 @@ def ingest():
     except Exception as e:
         print(f"Warning: could not clear existing chunks: {e}")
 
-    # Load fresh docs
+    # Load fresh documents
     docs = load_documents()
     if not docs:
         print("No documents found in docs/. Index is now empty.")
